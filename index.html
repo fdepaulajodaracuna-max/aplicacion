@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Fichaje y Nóminas</title>
+    <title>Sistema de Control de Horas (Sincronizado con Firestore)</title>
     <!-- Carga de Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Estilos personalizados para la tipografía */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f7f7f7;
         }
-        /* Estilos para que el contenido se centre y se vea bien en móvil */
         .container-wrapper {
             max-width: 600px;
             margin: 0 auto;
@@ -34,10 +33,15 @@
 <body>
 
 <div class="container-wrapper">
-    <!-- Título y Estado de la Aplicación -->
+    <!-- Título y Estado de Sincronización -->
     <header class="text-center py-6">
         <h1 class="text-3xl font-bold text-gray-800">Sistema de Control de Horas</h1>
-        <p id="auth-status" class="mt-2 text-sm font-medium text-blue-600">Conectando a la base de datos...</p>
+        <p id="sync-status" class="mt-2 text-sm font-semibold p-2 rounded-lg bg-blue-100 text-blue-600 animate-pulse">
+            🌐 Conectando a la base de datos central para la sincronización...
+        </p>
+        <p id="total-records-count" class="mt-1 text-sm text-gray-500 font-medium hidden">
+            Total de registros sincronizados: 0
+        </p>
     </header>
 
     <!-- Pestañas de Navegación -->
@@ -91,20 +95,18 @@
                         </div>
                         <div class="ml-3 text-sm">
                             <label for="usedCar" class="font-medium text-gray-700">Usé mi coche para el trabajo</label>
-                            <p class="text-gray-500">Se añadirá la compensación establecida por el administrador.</p>
+                            <p class="text-gray-500">Se añadirá la compensación establecida para el día.</p>
                         </div>
                     </div>
                 </div>
 
                 <!-- Botón de Registro -->
                 <button type="submit" id="submit-btn" class="mt-6 w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-lg text-lg font-semibold text-white bg-blue-600 btn-primary hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                    Registrar Jornada
+                    Registrar Jornada (Sincronización)
                 </button>
             </form>
             <p id="waiter-message" class="mt-4 text-center text-sm font-medium hidden"></p>
         </div>
-
-         <p class="text-xs text-gray-400 text-center mt-8">Tu ID de Sesión: <span id="user-id">Cargando...</span></p>
     </div>
 
     <!-- SECCIÓN DE ADMINISTRACIÓN -->
@@ -113,7 +115,7 @@
         <div id="admin-login-block" class="bg-white p-6 rounded-xl card mb-6">
             <h2 class="text-2xl font-semibold text-gray-700 mb-4">Acceso a Administración</h2>
             <p class="text-sm text-gray-500 mb-4">Ingresa el PIN de administrador para acceder a las nóminas y ajustes.</p>
-            <input type="password" id="admin-pin" placeholder="PIN (Ej: 1234)" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500">
+            <input type="password" id="admin-pin-input" placeholder="PIN Secreto" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500">
             <button onclick="checkAdminPin()" class="mt-4 w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
                 Entrar
             </button>
@@ -122,18 +124,29 @@
 
         <!-- Panel de Administración (Oculto hasta el login) -->
         <div id="admin-panel" class="hidden">
-            <!-- Configuración de Ajustes -->
+            
+            <!-- Bloque de URL de Sincronización (LLAVE SECRETA) -->
+            <div class="bg-yellow-100 p-4 rounded-xl card mb-6 border-l-4 border-yellow-500">
+                <h3 class="text-xl font-bold text-yellow-800 mb-2">URL de Configuración (Tu Llave Secreta)</h3>
+                <p class="text-sm text-yellow-700 mb-3">Guarda este **enlace completo** para que tu PIN y ajustes se sincronicen en otros dispositivos.</p>
+                <textarea id="config-url-display" rows="3" readonly class="w-full p-2 text-xs border border-yellow-400 rounded-md bg-white resize-none"></textarea>
+                <button onclick="copyConfigUrl()" class="mt-2 w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-yellow-900 bg-yellow-400 hover:bg-yellow-500">
+                    Copiar URL
+                </button>
+            </div>
+
+            <!-- Configuración de Ajustes GLOBALES -->
             <div class="bg-white p-6 rounded-xl card mb-6">
-                <h3 class="text-xl font-semibold text-gray-700 mb-4">Ajustes de Nómina Diaria</h3>
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Ajustes Globales y Por Defecto</h3>
                 
-                <!-- Compensación por Coche -->
+                <!-- Compensación por Coche (POR DEFECTO) -->
                 <div class="mb-4">
-                    <label for="carAllowance" class="block text-sm font-medium text-gray-700">Compensación por Coche (Hoy)</label>
+                    <label for="defaultCarAllowance" class="block text-sm font-medium text-gray-700">Compensación por Coche (Tarifa POR DEFECTO)</label>
                     <div class="mt-1 flex rounded-md shadow-sm">
                         <span class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">€</span>
-                        <input type="number" id="carAllowance" value="5.00" step="0.01" min="0" class="flex-1 block w-full rounded-none rounded-r-md px-3 py-2 border border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500">
+                        <input type="number" id="defaultCarAllowance" value="5.00" step="0.01" min="0" class="flex-1 block w-full rounded-none rounded-r-md px-3 py-2 border border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500">
                     </div>
-                    <p class="text-xs text-gray-500 mt-1">Valor actual: <span id="currentAllowance">5.00</span>€</p>
+                    <p class="text-xs text-gray-500 mt-1">Valor actual por defecto: <span id="currentAllowance">5.00</span>€.</p>
                 </div>
 
                 <!-- Toggle de Multiples Registros -->
@@ -143,31 +156,90 @@
                     </label>
                     <input type="checkbox" id="multiShiftToggle" class="h-5 w-5 text-green-600 border-gray-300 rounded focus:ring-green-500">
                 </div>
+                
+                <!-- Ajuste de la tarifa por hora (Nuevo) -->
+                <div class="mb-4">
+                    <label for="hourlyRate" class="block text-sm font-medium text-gray-700">Tarifa Base por Hora</label>
+                    <div class="mt-1 flex rounded-md shadow-sm">
+                        <span class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">€/h</span>
+                        <input type="number" id="hourlyRate" value="9.00" step="0.01" min="0" class="flex-1 block w-full rounded-none rounded-r-md px-3 py-2 border border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500">
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Tarifa actual: <span id="currentHourlyRate">9.00</span>€/h.</p>
+                </div>
 
                 <button onclick="saveSettings()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
-                    Guardar Ajustes
+                    Guardar Ajustes y **ACTUALIZAR URL**
                 </button>
+            </div>
+
+            <!-- Ajuste del PIN de Administrador -->
+            <div class="bg-white p-6 rounded-xl card mb-6 border-l-4 border-red-500">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Cambiar PIN de Administración</h3>
+                <p class="text-sm text-gray-500 mb-4">PIN actual: <span id="current-admin-pin" class="font-bold text-red-600">Cargando...</span></p>
+                
+                <label for="newAdminPin" class="block text-sm font-medium text-gray-700">Nuevo PIN Secreto</label>
+                <input type="text" id="newAdminPin" placeholder="Introduce el nuevo PIN" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500">
+                
+                <button onclick="updateAdminPin()" class="mt-4 w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700">
+                    Guardar Nuevo PIN y **ACTUALIZAR URL**
+                </button>
+            </div>
+
+
+            <!-- Ajuste de Compensación por Fecha Específica -->
+            <div class="bg-white p-6 rounded-xl card mb-6 border-l-4 border-blue-500">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Compensación por Coche (Ajuste por Día)</h3>
+                <p class="text-sm text-gray-500 mb-4">Establece una tarifa diferente a la por defecto para una fecha específica. (Sincronizado via URL).</p>
+
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <!-- Selector de Fecha -->
+                        <div>
+                            <label for="dailyAllowanceDate" class="block text-sm font-medium text-gray-700">Fecha del Ajuste</label>
+                            <input type="date" id="dailyAllowanceDate" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <!-- Valor de Compensación -->
+                        <div>
+                            <label for="dailyAllowanceValue" class="block text-sm font-medium text-gray-700">Tarifa (€)</label>
+                            <div class="mt-1 flex rounded-md shadow-sm">
+                                <span class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">€</span>
+                                <input type="number" id="dailyAllowanceValue" value="5.00" step="0.01" min="0" required class="flex-1 block w-full rounded-none rounded-r-md px-3 py-2 border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="handleDailyAllowanceUpdate()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                        Guardar Tarifa para la Fecha y **ACTUALIZAR URL**
+                    </button>
+                </div>
+                
+                <h4 class="text-lg font-semibold text-gray-700 mt-6 mb-3">Tarifas Diarias Especiales Existentes:</h4>
+                <div class="max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50">
+                    <ul id="daily-allowance-list" class="text-sm space-y-1">
+                        <!-- Lista generada por JS -->
+                    </ul>
+                </div>
             </div>
 
             <!-- Listado de Nóminas por Año/Mes -->
             <div class="bg-white p-6 rounded-xl card mb-6">
-                <h3 class="text-xl font-semibold text-gray-700 mb-4">Nóminas y Resúmenes</h3>
-                <p class="text-sm text-gray-500 mb-4">El salario base es de **9€/hora**.</p>
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Nóminas y Resúmenes (Datos sincronizados)</h3>
+                <p class="text-sm text-gray-500 mb-4">Salario base: <strong id="payroll-hourly-rate">9.00€/hora</strong>.</p>
                 
-                <div id="payroll-loading" class="text-center py-4 text-gray-500">Cargando datos de nóminas...</div>
-
                 <div id="payroll-list" class="space-y-6">
                     <!-- Contenido de Nóminas Generado por JS -->
+                    <p class="text-gray-500">Cargando datos...</p>
                 </div>
             </div>
 
             <!-- Listado de Registros Crudos -->
             <div class="bg-white p-6 rounded-xl card">
-                <h3 class="text-xl font-semibold text-gray-700 mb-4">Registros Crudos (Listado)</h3>
-                <p class="text-sm text-gray-500 mb-2">Aquí puedes ver todos los registros manuales.</p>
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Registros Crudos (Sincronizados)</h3>
+                <p class="text-sm text-gray-500 mb-2">Aquí puedes ver todos los registros manuales en tiempo real.</p>
                 <div class="max-h-80 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50">
                     <ul id="raw-records-list" class="text-sm space-y-1">
                         <!-- Registros Crudos Generados por JS -->
+                        <li class="text-gray-500 p-2">Esperando datos de sincronización...</li>
                     </ul>
                 </div>
             </div>
@@ -175,166 +247,291 @@
     </div>
 </div>
 
-<!-- Scripts de Firebase y Lógica de la Aplicación -->
 <script type="module">
+    // --- IMPORTACIONES DE FIREBASE ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, onSnapshot, collection, query, where, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // Establecer nivel de log para depuración de Firestore
-    setLogLevel('error');
+    setLogLevel('error'); // Cambiar a 'debug' si es necesario
 
-    // --- VARIABLES GLOBALES (PROPORCIONADAS POR EL ENTORNO) ---
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    // --- VARIABLES GLOBALES Y FIREBASE SETUP ---
+    const LS_SETTINGS_KEY = 'app_settings'; // Clave para guardar el PIN/Settings localmente
+    const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const FIREBASE_CONFIG = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    const INITIAL_AUTH_TOKEN = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-    // --- CONFIGURACIÓN FIREBASE ---
-    let app, auth, db;
-    let userId = null;
+    let db, auth;
+    let userId;
+
+    let settings = { 
+        hourlyRate: 9.00, // Tarifa por defecto
+        defaultCarAllowance: 5.00,
+        enableMultiShift: false,
+        adminPin: 'Venta2014', // PIN por defecto
+        dailyAllowances: {} // Tarifas por fecha (ahora sincronizadas vía URL)
+    };
     let records = [];
-    let settings = {
-        carAllowance: 5.00, // € por defecto
-        enableMultiShift: false
-    };
-
-    // Colecciones
-    const RECORDS_PATH = `artifacts/${appId}/public/data/waiter_records`;
-    const SETTINGS_DOC_PATH = `artifacts/${appId}/public/data/app_settings/config`;
-
-    // Parámetros de nómina
-    const HOURLY_RATE = 9.00; // €/hora
-
-    // Configuración del Admin
-    const ADMIN_PIN = "1234"; // PIN simple para acceso de demo
     let adminLoggedIn = false;
+    let isAuthReady = false;
 
+    // --- FUNCIONES DE CÓDIGO/DECODIFICACIÓN DE URL ---
 
-    // --- FUNCIONES CORE ---
-
-    // 1. Inicialización y Autenticación
-    const initializeAppAndAuth = async () => {
-        try {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-
-            // Usar persistencia de sesión
-            await setPersistence(auth, browserSessionPersistence);
-
-            if (initialAuthToken) {
-                await signInWithCustomToken(auth, initialAuthToken);
-            } else {
-                await signInAnonymously(auth);
-            }
-
-            // Listener de estado de autenticación
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    userId = user.uid;
-                    document.getElementById('user-id').textContent = userId;
-                    document.getElementById('auth-status').textContent = 'Conectado. ID: ' + userId.substring(0, 8) + '...';
-                    
-                    // Solo cargamos datos si el usuario está autenticado
-                    startDataListeners();
-                } else {
-                    document.getElementById('auth-status').textContent = 'Desconectado.';
-                    // Si falla, intentamos anónimo
-                    signInAnonymously(auth).catch(e => console.error("Fallo al iniciar sesión anónima:", e));
-                }
-            });
-
-        } catch (e) {
-            console.error("Error al inicializar Firebase:", e);
-            document.getElementById('auth-status').textContent = 'Error de conexión.';
-        }
-    };
-
-    // 2. Listeners de Datos (Firestore)
-    const startDataListeners = () => {
-        // Listener de Ajustes (Settings)
-        const settingsRef = doc(db, SETTINGS_DOC_PATH);
-        onSnapshot(settingsRef, (docSnap) => {
-            if (docSnap.exists()) {
-                settings = docSnap.data();
-                console.log("Ajustes cargados:", settings);
-                updateSettingsUI();
-            } else {
-                console.log("No hay ajustes. Creando por defecto...");
-                saveSettings(true); // Crear configuración por defecto si no existe
-            }
-        }, (error) => {
-            console.error("Error al escuchar ajustes:", error);
-        });
-
-        // Listener de Registros (Records)
-        const recordsColRef = collection(db, RECORDS_PATH);
-        onSnapshot(recordsColRef, (snapshot) => {
-            records = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                records.push({ id: doc.id, ...data });
-            });
-            console.log("Registros cargados:", records);
-            // Actualizar la vista de registros y nóminas solo si es admin
-            if (adminLoggedIn) {
-                renderRawRecords();
-                renderPayroll();
-            }
-        }, (error) => {
-            console.error("Error al escuchar registros:", error);
-        });
-    };
-
-    // 3. Guardar Ajustes
-    window.saveSettings = async (isDefault = false) => {
-        if (!userId) {
-            alertMessage("Error: Sesión no iniciada.", "waiter-message", "text-red-500");
-            return;
-        }
-
-        const newCarAllowance = parseFloat(document.getElementById('carAllowance').value);
-        const newMultiShiftToggle = document.getElementById('multiShiftToggle').checked;
-
-        settings.carAllowance = newCarAllowance;
-        settings.enableMultiShift = newMultiShiftToggle;
-
-        const settingsData = {
-            carAllowance: settings.carAllowance,
-            enableMultiShift: settings.enableMultiShift,
-            lastUpdatedBy: userId,
-            timestamp: new Date().toISOString()
+    /**
+     * Codifica el objeto de ajustes en una cadena Base64 y actualiza la URL.
+     */
+    const encodeSettingsAndPushUrl = () => {
+        // Solo guardamos los ajustes esenciales para la configuración compartida
+        const configToEncode = {
+            p: settings.adminPin, // pin
+            c: settings.defaultCarAllowance, // car allowance
+            m: settings.enableMultiShift, // multi shift
+            d: settings.dailyAllowances, // daily allowances
+            h: settings.hourlyRate // hourly rate
         };
 
-        try {
-            const settingsRef = doc(db, SETTINGS_DOC_PATH);
-            await setDoc(settingsRef, settingsData);
-            alertMessage(`Ajustes guardados con éxito. ${isDefault ? '(Por defecto)' : ''}`, "admin-panel", "text-green-600");
-            updateSettingsUI();
-        } catch (e) {
-            console.error("Error al guardar ajustes: ", e);
-            alertMessage("Error al guardar ajustes.", "admin-panel", "text-red-500");
-        }
-    };
-
-    // 4. Actualizar UI de Ajustes
-    const updateSettingsUI = () => {
-        if (settings) {
-            document.getElementById('carAllowance').value = settings.carAllowance.toFixed(2);
-            document.getElementById('currentAllowance').textContent = settings.carAllowance.toFixed(2);
-            document.getElementById('multiShiftToggle').checked = settings.enableMultiShift;
-        }
-    };
-
-    // 5. Manejar el Formulario del Camarero
-    window.handleWaiterForm = async (event) => {
-        event.preventDefault();
+        const settingsJson = JSON.stringify(configToEncode);
+        const encoded = btoa(settingsJson);
         
-        if (!userId) {
-            alertMessage("Error: Sesión no iniciada. Espera la conexión.", "waiter-message", "text-red-500");
+        // Crear la nueva URL con el parámetro 'config'
+        const url = new URL(window.location.href);
+        url.searchParams.set('config', encoded);
+        
+        // Usar replaceState para no llenar el historial
+        window.history.replaceState(null, '', url.toString());
+
+        // Actualizar el textarea de la URL de configuración
+        document.getElementById('config-url-display').value = url.toString();
+        
+        // Guardar también en localStorage como respaldo
+        localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
+    };
+
+    /**
+     * Carga los ajustes: prioritariamente desde la URL, sino desde localStorage, sino por defecto.
+     */
+    const loadSettings = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const encodedConfig = urlParams.get('config');
+
+        let loadedSettings = null;
+
+        if (encodedConfig) {
+            // 1. Cargar desde la URL (máxima prioridad para sincronización de configuración)
+            try {
+                const decodedJson = atob(encodedConfig);
+                const decodedConfig = JSON.parse(decodedJson);
+                
+                // Mapear los nombres cortos a los nombres largos del objeto settings
+                loadedSettings = {
+                    adminPin: decodedConfig.p,
+                    defaultCarAllowance: decodedConfig.c,
+                    enableMultiShift: decodedConfig.m,
+                    dailyAllowances: decodedConfig.d || {},
+                    hourlyRate: decodedConfig.h || 9.00 // Usar 9.00 si no existe
+                };
+                console.log("Ajustes de configuración cargados desde URL.");
+            } catch (e) {
+                console.error("Error al decodificar la URL. Usando localStorage/Default.", e);
+            }
+        }
+        
+        if (!loadedSettings) {
+             // 2. Cargar desde localStorage (si existe)
+            const lsSettings = localStorage.getItem(LS_SETTINGS_KEY);
+            if (lsSettings) {
+                try {
+                    // Cargar el objeto completo de settings guardado
+                    loadedSettings = JSON.parse(lsSettings);
+                    console.log("Ajustes de configuración cargados desde localStorage.");
+                } catch (e) {
+                    console.error("Error al parsear localStorage. Usando Default.", e);
+                }
+            }
+        }
+
+        // 3. Aplicar ajustes si se cargaron
+        if (loadedSettings) {
+            settings = { ...settings, ...loadedSettings };
+            // Asegurar que dailyAllowances es un objeto si no vino en la URL
+            if (!settings.dailyAllowances) settings.dailyAllowances = {};
+        }
+        
+        // Inicializar la UI
+        updateSettingsUI();
+        
+        // Crear la URL de configuración inicial si no existe
+        if (!encodedConfig) {
+            encodeSettingsAndPushUrl();
+        }
+    };
+    
+    // --- FIREBASE INICIALIZACIÓN Y AUTHENTICACIÓN ---
+
+    const initFirebaseAndAuth = async () => {
+        try {
+            const app = initializeApp(FIREBASE_CONFIG);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            // 1. Autenticación
+            const authPromise = new Promise((resolve) => {
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        unsubscribe(); // Detener el listener después de la primera autenticación
+                        resolve();
+                    } else {
+                        // Si no hay usuario, intentar iniciar sesión con el token o de forma anónima
+                        try {
+                            if (INITIAL_AUTH_TOKEN) {
+                                await signInWithCustomToken(auth, INITIAL_AUTH_TOKEN);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Error en signInWithCustomToken/signInAnonymously", error);
+                            // En caso de fallo, intentamos continuar con userId anónimo
+                            userId = crypto.randomUUID();
+                            isAuthReady = true;
+                            unsubscribe();
+                            resolve();
+                        }
+                    }
+                });
+            });
+
+            await authPromise;
+            
+            // 2. Iniciar la suscripción a Firestore (Listener de tiempo real)
+            setupRecordsListener();
+            
+            // 3. Actualizar estado de conexión
+            document.getElementById('sync-status').classList.remove('bg-blue-100', 'text-blue-600', 'animate-pulse');
+            document.getElementById('sync-status').classList.add('bg-green-100', 'text-green-600');
+            document.getElementById('sync-status').textContent = '✅ Sincronización en tiempo real activa.';
+
+        } catch (error) {
+            console.error("Error al inicializar Firebase:", error);
+            document.getElementById('sync-status').classList.remove('bg-blue-100', 'text-blue-600', 'animate-pulse');
+            document.getElementById('sync-status').classList.add('bg-red-100', 'text-red-600');
+            document.getElementById('sync-status').textContent = '❌ Error de conexión con la base de datos central.';
+        }
+    };
+
+    // --- LÓGICA DE FIREBASE (onSnapshot) ---
+
+    const getRecordsCollectionRef = () => {
+        // Ruta pública: /artifacts/{appId}/public/data/timeRecords
+        return collection(db, `artifacts/${APP_ID}/public/data/timeRecords`);
+    };
+
+    const setupRecordsListener = () => {
+        if (!isAuthReady || !db) return;
+
+        const q = query(getRecordsCollectionRef());
+        
+        onSnapshot(q, (snapshot) => {
+            records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log(`Datos sincronizados. Total de registros: ${records.length}`);
+            
+            document.getElementById('total-records-count').textContent = `Total de registros sincronizados: ${records.length}`;
+            document.getElementById('total-records-count').classList.remove('hidden');
+
+            // Solo renderizar el panel de admin si está logueado y activo
+            if (adminLoggedIn) {
+                renderAllAdminData();
+            } else if (document.getElementById('tab-admin').classList.contains('bg-blue-500')) {
+                 // Si la pestaña admin está visible pero no logueado, forzar renderizado de la lista cruda vacía/loading
+                 renderRawRecords();
+            }
+        }, (error) => {
+            console.error("Error al escuchar los registros de Firestore:", error);
+            alertMessage("Error de sincronización con Firestore. Consulta la consola.", "sync-status", "text-red-600");
+        });
+    };
+    
+    // --- FUNCIONES DE ADMINISTRACIÓN ---
+
+    // 1. Guardar Ajustes GLOBALES (Botón Admin)
+    window.saveSettings = () => {
+        if (!adminLoggedIn) {
+            alertMessage("Error: Acceso no autorizado.", "admin-panel", "text-red-500");
             return;
         }
 
+        const newDefaultCarAllowance = parseFloat(document.getElementById('defaultCarAllowance').value);
+        const newMultiShiftToggle = document.getElementById('multiShiftToggle').checked;
+        const newHourlyRate = parseFloat(document.getElementById('hourlyRate').value);
+
+        settings.defaultCarAllowance = newDefaultCarAllowance;
+        settings.enableMultiShift = newMultiShiftToggle;
+        settings.hourlyRate = newHourlyRate;
+        
+        // Sincronizar y actualizar UI/URL
+        updateSettingsUI();
+        encodeSettingsAndPushUrl(); 
+        
+        alertMessage(`Ajustes globales guardados con éxito y URL de sincronización actualizada.`, "admin-panel", "text-green-600");
+    };
+
+    // 2. Actualizar el PIN de Administrador
+    window.updateAdminPin = () => {
+        if (!adminLoggedIn) return;
+        
+        const newPin = document.getElementById('newAdminPin').value.trim();
+
+        if (newPin.length < 4) {
+            alertMessage("El PIN debe tener al menos 4 caracteres.", "admin-panel", "text-red-500");
+            return;
+        }
+
+        settings.adminPin = newPin;
+        
+        // Sincronizar y actualizar UI/URL
+        updateSettingsUI();
+        encodeSettingsAndPushUrl(); 
+        
+        alertMessage(`PIN de administrador actualizado y URL de sincronización actualizada.`, "admin-panel", "text-green-600");
+        document.getElementById('newAdminPin').value = '';
+    };
+
+    // 3. Guardar el ajuste de coche por fecha específica
+    window.handleDailyAllowanceUpdate = () => {
+        if (!adminLoggedIn) {
+            alertMessage("Error: Acceso no autorizado.", "admin-panel", "text-red-500");
+            return;
+        }
+        
+        const dateInput = document.getElementById('dailyAllowanceDate').value;
+        const allowanceValue = parseFloat(document.getElementById('dailyAllowanceValue').value);
+
+        if (!dateInput || isNaN(allowanceValue) || allowanceValue < 0) {
+            alertMessage("Por favor, introduce una fecha válida y una tarifa positiva.", "admin-panel", "text-red-500");
+            return;
+        }
+        
+        // Guardar en el objeto de settings y sincronizar via URL
+        settings.dailyAllowances[dateInput] = allowanceValue;
+        
+        encodeSettingsAndPushUrl();
+        
+        alertMessage(`Tarifa de coche de ${allowanceValue.toFixed(2)}€ guardada para la fecha ${dateInput} y URL actualizada.`, "admin-panel", "text-green-600");
+        renderDailyAllowanceList();
+    };
+
+    // --- FUNCIONES DE REGISTRO DE CAMARERO (FIREBASE addDoc) ---
+
+    window.handleWaiterForm = async (event) => {
+        event.preventDefault();
+
+        if (!isAuthReady || !db) {
+            alertMessage("Error: La base de datos no está conectada. Inténtalo de nuevo en unos segundos.", "waiter-message", "text-red-500");
+            return;
+        }
+        
         const form = event.target;
         const name = form.name.value.trim();
         const phone = form.phone.value.trim();
@@ -343,28 +540,28 @@
         const usedCar = form.usedCar.checked;
         
         const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const HOURLY_RATE = settings.hourlyRate; // Usar la tarifa sincronizada
 
-        // 5.1. Validación de Registro Único (si no está permitido el multi-shift)
-        if (!settings.enableMultiShift) {
+        // 1. Validación de Registro Único (solo si la data ya fue sincronizada)
+        if (!settings.enableMultiShift && records.length > 0) {
             const alreadyRegistered = records.some(
                 record => record.phone === phone && record.date === today
             );
             if (alreadyRegistered) {
-                alertMessage("Ya existe un registro para tu teléfono hoy. No se permite multi-shift.", "waiter-message", "text-red-500");
+                alertMessage("Ya existe un registro para tu teléfono hoy. Multi-shift deshabilitado.", "waiter-message", "text-red-500");
                 return;
             }
         }
 
-        // 5.2. Cálculo de Duración y Salario
-        const entry = new Date(today + 'T' + entryTimeStr + ':00');
-        const exit = new Date(today + 'T' + exitTimeStr + ':00');
+        // 2. Cálculo de Duración y Salario
+        const entryDate = new Date(today + 'T' + entryTimeStr + ':00');
+        let exitDate = new Date(today + 'T' + exitTimeStr + ':00');
         
-        // Si la salida es anterior a la entrada, asumimos que fue al día siguiente (turno nocturno)
-        if (exit < entry) {
-            exit.setDate(exit.getDate() + 1);
+        if (exitDate < entryDate) {
+            exitDate.setDate(exitDate.getDate() + 1); // Asumir turno nocturno
         }
 
-        const durationMs = exit - entry;
+        const durationMs = exitDate - entryDate;
         const durationHours = durationMs / (1000 * 60 * 60);
 
         if (durationHours <= 0) {
@@ -372,8 +569,18 @@
             return;
         }
         
+        // Lógica para obtener la Compensación por Coche
+        let carAllowanceRate = settings.defaultCarAllowance || 0; 
+        
+        if (usedCar) {
+            const dailyAllowance = settings.dailyAllowances[today];
+            if (dailyAllowance !== undefined) {
+                carAllowanceRate = dailyAllowance;
+            }
+        }
+        
         const basePay = durationHours * HOURLY_RATE;
-        const carAllowance = usedCar ? settings.carAllowance : 0;
+        const carAllowance = usedCar ? carAllowanceRate : 0; 
         const totalPay = basePay + carAllowance;
         
         const recordData = {
@@ -385,60 +592,81 @@
             yearMonth: today.substring(0, 7), // YYYY-MM
             durationHours: parseFloat(durationHours.toFixed(2)),
             ratePerHour: HOURLY_RATE,
-            carAllowance: carAllowance,
+            carAllowance: parseFloat(carAllowance.toFixed(2)), 
             totalPay: parseFloat(totalPay.toFixed(2)),
             usedCar: usedCar,
             registeredAt: new Date().toISOString(),
-            userId: userId // ID del usuario que registró (en este caso, el camarero)
         };
 
-        // 5.3. Guardar en Firestore
+        // 3. Guardar en Firestore
         try {
-            const recordsColRef = collection(db, RECORDS_PATH);
-            await addDoc(recordsColRef, recordData);
+            document.getElementById('submit-btn').textContent = 'Guardando en la nube...';
+            document.getElementById('submit-btn').disabled = true;
+
+            await addDoc(getRecordsCollectionRef(), recordData);
             
-            // 5.4. Simulación de Notificación Twilio
-            sendWhatsAppNotification(recordData);
-
-            alertMessage(`Jornada registrada con éxito. Cobro estimado: ${totalPay.toFixed(2)}€ (${durationHours.toFixed(2)}h @${HOURLY_RATE}€).`, "waiter-message", "text-green-600");
-            form.reset(); // Limpiar el formulario
-
+            // Simulación de Notificación (Console)
+            sendWhatsAppNotification(recordData); 
+            
+            alertMessage(`Jornada registrada con éxito y sincronizada. Cobro estimado: ${totalPay.toFixed(2)}€ (${durationHours.toFixed(2)}h).`, "waiter-message", "text-green-600");
+            form.reset(); 
         } catch (e) {
-            console.error("Error al guardar el registro: ", e);
-            alertMessage("Error al guardar en la base de datos.", "waiter-message", "text-red-500");
+            console.error("Error al guardar el registro en Firestore:", e);
+            alertMessage("Error al guardar el registro. Inténtalo de nuevo.", "waiter-message", "text-red-500");
+        } finally {
+            document.getElementById('submit-btn').textContent = 'Registrar Jornada (Sincronización)';
+            document.getElementById('submit-btn').disabled = false;
         }
     };
 
-    // 6. Simulación de Notificación Twilio (WhatsApp)
-    const sendWhatsAppNotification = (data) => {
-        const message = `
-🚨 NUEVO REGISTRO DE JORNADA 🚨
----------------------------------
-👤 Camarero: ${data.name}
-📞 Teléfono: ${data.phone}
-📅 Fecha: ${data.date}
-⏰ Entrada: ${data.entryTime}
-🚪 Salida: ${data.exitTime}
-⏳ Horas Totales: ${data.durationHours.toFixed(2)}h
-🚗 Usó Coche: ${data.usedCar ? 'SÍ' : 'NO'} (${data.carAllowance.toFixed(2)}€)
-💰 Pago Total: ${data.totalPay.toFixed(2)}€
+    // --- FUNCIONES DE RENDERING (Admin Panel) ---
 
-👉 *Aquí es donde deberías integrar tu lógica real de Twilio (usando fetch o un servidor backend) para enviar este mensaje a tu número de WhatsApp.*
-        `;
-        console.log(message);
-        // Opcional: mostrar un mensaje en el UI de que la notificación se ha simulado.
+    const updateSettingsUI = () => {
+        if (settings) {
+            document.getElementById('defaultCarAllowance').value = settings.defaultCarAllowance.toFixed(2);
+            document.getElementById('currentAllowance').textContent = settings.defaultCarAllowance.toFixed(2);
+            document.getElementById('multiShiftToggle').checked = settings.enableMultiShift;
+            document.getElementById('current-admin-pin').textContent = settings.adminPin;
+            document.getElementById('hourlyRate').value = settings.hourlyRate.toFixed(2);
+            document.getElementById('currentHourlyRate').textContent = settings.hourlyRate.toFixed(2);
+            document.getElementById('payroll-hourly-rate').textContent = `${settings.hourlyRate.toFixed(2)}€/hora`;
+        }
+        // Asegurar que la URL se muestre
+        encodeSettingsAndPushUrl();
+        renderDailyAllowanceList();
     };
-    
-    // 7. Renderizar Registros Crudos (Admin)
+
+    const renderDailyAllowanceList = () => {
+        const listEl = document.getElementById('daily-allowance-list');
+        listEl.innerHTML = '';
+
+        const dailyAllowances = settings.dailyAllowances || {};
+        const dates = Object.keys(dailyAllowances);
+        
+        if (dates.length === 0) {
+            listEl.innerHTML = '<li class="text-gray-500 text-sm p-2">No hay tarifas especiales por fecha.</li>';
+            return;
+        }
+        
+        const dailyRates = dates.map(date => ({ date, allowance: dailyAllowances[date] }));
+        dailyRates.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        listEl.innerHTML = dailyRates.map(rate => `
+            <li class="p-2 border-b border-gray-100 flex justify-between text-sm">
+                <span class="font-semibold text-gray-700">${rate.date}</span>
+                <span class="font-bold text-blue-600">${rate.allowance.toFixed(2)} €</span>
+            </li>
+        `).join('');
+    };
+
     const renderRawRecords = () => {
         const listEl = document.getElementById('raw-records-list');
         listEl.innerHTML = '';
         if (records.length === 0) {
-            listEl.innerHTML = '<li class="text-gray-500">No hay registros aún.</li>';
+            listEl.innerHTML = '<li class="text-gray-500 p-2">No hay registros aún.</li>';
             return;
         }
 
-        // Ordenar por fecha descendente
         const sortedRecords = [...records].sort((a, b) => new Date(b.registeredAt) - new Date(a.registeredAt));
 
         sortedRecords.forEach(record => {
@@ -451,16 +679,14 @@
                 </div>
                 <div class="text-right">
                     <span class="font-bold text-blue-600">${record.totalPay.toFixed(2)}€</span>
-                    ${record.usedCar ? '<span class="text-xs text-green-500 block">🚗 Coche</span>' : ''}
+                    ${record.usedCar ? `<span class="text-xs text-green-500 block">🚗 Coche (${record.carAllowance.toFixed(2)}€)</span>` : ''}
                 </div>
             `;
             listEl.appendChild(li);
         });
     };
 
-    // 8. Calcular y Renderizar Nóminas Agrupadas (Admin)
     const renderPayroll = () => {
-        document.getElementById('payroll-loading').classList.add('hidden');
         const payrollListEl = document.getElementById('payroll-list');
         payrollListEl.innerHTML = '';
         
@@ -469,7 +695,6 @@
             return;
         }
 
-        // Estructura: { YYYY: { MM: { Camarero: { totalHours, totalPay, totalCarAllowance } } } }
         const payrollData = {};
 
         records.forEach(record => {
@@ -480,11 +705,7 @@
             if (!payrollData[year]) payrollData[year] = {};
             if (!payrollData[year][month]) payrollData[year][month] = {};
             if (!payrollData[year][month][waiterKey]) {
-                payrollData[year][month][waiterKey] = {
-                    totalHours: 0,
-                    totalPay: 0,
-                    totalCarAllowance: 0
-                };
+                payrollData[year][month][waiterKey] = { totalHours: 0, totalPay: 0, totalCarAllowance: 0 };
             }
 
             payrollData[year][month][waiterKey].totalHours += record.durationHours;
@@ -492,24 +713,20 @@
             payrollData[year][month][waiterKey].totalCarAllowance += record.carAllowance;
         });
 
-        // Renderizado
         const monthNames = { '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto', '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre' };
         
-        // Ordenar Años de forma descendente
         Object.keys(payrollData).sort((a, b) => b - a).forEach(year => {
             const yearBlock = document.createElement('div');
             yearBlock.className = 'border-4 border-blue-100 rounded-xl p-4 bg-blue-50';
             yearBlock.innerHTML = `<h4 class="text-xl font-bold text-blue-800 mb-4">Año ${year}</h4><div class="space-y-4" id="year-${year}"></div>`;
             payrollListEl.appendChild(yearBlock);
             
-            // Ordenar Meses de forma descendente
             Object.keys(payrollData[year]).sort((a, b) => b - a).forEach(month => {
                 const monthBlock = document.createElement('div');
                 monthBlock.className = 'border border-gray-200 rounded-lg p-3 bg-white shadow-sm';
                 
                 let monthHTML = `<h5 class="text-lg font-semibold text-gray-700 mb-3">${monthNames[month] || month}</h5><ul class="space-y-2">`;
                 
-                // Renderizar Camareros
                 Object.keys(payrollData[year][month]).forEach(waiter => {
                     const data = payrollData[year][month][waiter];
                     monthHTML += `
@@ -537,8 +754,17 @@
             });
         });
     };
+    
+    const renderAllAdminData = () => {
+        if (adminLoggedIn) {
+            renderRawRecords();
+            renderPayroll();
+            renderDailyAllowanceList();
+        }
+    };
 
-    // 9. Funciones de UI
+    // --- FUNCIONES DE UI Y UTILITIES ---
+
     window.showSection = (sectionId) => {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
         document.querySelectorAll('.flex > button').forEach(el => {
@@ -549,54 +775,77 @@
         document.getElementById(`section-${sectionId}`).classList.remove('hidden');
         document.getElementById(`tab-${sectionId}`).classList.remove('text-gray-600', 'hover:bg-gray-100');
         document.getElementById(`tab-${sectionId}`).classList.add('bg-blue-500', 'text-white');
+        
+        if (sectionId === 'admin' && adminLoggedIn) {
+            renderAllAdminData();
+        }
     };
 
     window.checkAdminPin = () => {
-        const pin = document.getElementById('admin-pin').value;
+        const pin = document.getElementById('admin-pin-input').value;
         const errorEl = document.getElementById('admin-error');
-        if (pin === ADMIN_PIN) {
+        
+        if (pin === settings.adminPin) {
             adminLoggedIn = true;
             errorEl.classList.add('hidden');
             document.getElementById('admin-login-block').classList.add('hidden');
             document.getElementById('admin-panel').classList.remove('hidden');
-            // Cargar datos una vez que el admin ha iniciado sesión
-            renderRawRecords();
-            renderPayroll();
+            
+            renderAllAdminData();
+            
             alertMessage("Acceso de Admin concedido.", "admin-panel", "text-green-600");
         } else {
             errorEl.classList.remove('hidden');
         }
     };
+
+    window.copyConfigUrl = () => {
+        const textarea = document.getElementById('config-url-display');
+        textarea.select();
+        document.execCommand('copy'); 
+        alertMessage("URL de configuración copiada al portapapeles. Úsala en tus otros dispositivos.", "admin-panel", "text-blue-500");
+    };
     
-    // Función de ayuda para mostrar mensajes temporales
-    const alertMessage = (message, elementId, colorClass) => {
-        let el;
-        if (elementId === 'admin-panel') {
-            // Buscamos un mensaje general en el panel admin
-            const adminPanel = document.getElementById('admin-panel');
-            el = adminPanel.querySelector('p.temp-msg');
-            if (!el) {
-                el = document.createElement('p');
-                el.className = 'mt-2 text-center text-sm font-medium temp-msg';
-                adminPanel.prepend(el);
-            }
-        } else {
-            el = document.getElementById(elementId);
-        }
-        
-        // Limpiar clases de color previas y aplicar las nuevas
-        el.className = el.className.split(' ').filter(c => !c.startsWith('text-')).join(' ');
-        el.textContent = message;
-        el.className += ` mt-4 text-center text-sm font-medium ${colorClass}`;
-        el.classList.remove('hidden');
-        
-        setTimeout(() => {
-            el.classList.add('hidden');
-        }, 5000);
+    const sendWhatsAppNotification = (data) => {
+        // Esta es una simulación. En un entorno real, usarías un servicio backend para enviar el WA.
+        const message = `
+🚨 NUEVO REGISTRO DE JORNADA 🚨 (SINCRONIZADO)
+---------------------------------
+👤 Camarero: ${data.name}
+📞 Teléfono: ${data.phone}
+📅 Fecha: ${data.date}
+⏰ Entrada: ${data.entryTime}
+🚪 Salida: ${data.exitTime}
+⏳ Horas Totales: ${data.durationHours.toFixed(2)}h
+🚗 Usó Coche: ${data.usedCar ? 'SÍ' : 'NO'} (${data.carAllowance.toFixed(2)}€)
+💰 Pago Total: ${data.totalPay.toFixed(2)}€
+---------------------------------
+        `;
+        console.log(message);
     };
 
-    // --- INICIO DE LA APLICACIÓN ---
-    window.onload = initializeAppAndAuth;
+    const alertMessage = (message, elementId, colorClass) => {
+        let el = document.getElementById(elementId);
+        
+        // Limpiar clases de color y aplicar la nueva
+        el.className = el.className.split(' ').filter(c => !c.startsWith('text-')).filter(c => !c.startsWith('bg-')).join(' ');
+        el.textContent = message;
+        el.className += ` mt-4 text-center text-sm font-medium ${colorClass} p-2 rounded-md`;
+        el.classList.remove('hidden');
+        
+        // Timeout solo para mensajes de formulario, no para el estado de sync
+        if (elementId !== 'sync-status') {
+            setTimeout(() => {
+                el.classList.add('hidden');
+            }, 5000);
+        }
+    };
+
+    // --- INICIALIZACIÓN ---
+    window.onload = () => {
+        loadSettings(); // Carga la configuración de la URL/Local
+        initFirebaseAndAuth(); // Conecta a Firebase
+    };
 
 </script>
 </body>
